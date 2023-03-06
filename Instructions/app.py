@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import create_engine, func
 import datetime as dt
 
-from flask import flask, jsonify
+from flask import Flask, jsonify
 
 #################################################
 # Database Setup
@@ -21,8 +21,8 @@ Base = automap_base()
 Base.prepare(autoload_with=engine)
 
 # Save reference to the table
+Station = Base.classes.station
 measurement = Base.classes.measurement
-station = Base.classes.station
 
 #################################################
 # Flask Setup
@@ -44,11 +44,10 @@ def welcome():
         f"----------------------------------------------------<br/>"
         f"Available Routes:<br/>"
         f"/api/v1.0/precipitation<br/>"
-        f"/api/v1.0/stations<br/>"
+        f"/api/v1.0/station<br/>"
         f"/api/v1.0/tobs<br/>"
         f"/api/v1.0/<start><br/>"
-        f"/api/v1.0/<end><br/>"
-        f"/api/v1.0/start_date/end_date<br/>"
+        f"/api/v1.0/<start>/<end><br/>"
         f"<br>"
         f"Note: You will be asked to input the 'start_date' and 'end_date'. Format for querying is 'YYYY-MM-DD'.")
 
@@ -65,14 +64,15 @@ def precip():
 
     """Return last 12 months of data) to a dictionary using date as the key and prcp as the value"""
     # Query the date and precipitations values from the measurement table
-    sel = [measurement.date, measurement.prcp]
-
+        # Get the most recent date from the database and calculate one year back
     recent_date = session.query(measurement.date).order_by(measurement.date.desc()).first()[0]
     recent_date = (dt.datetime.strptime(recent_date, "%Y-%m-%d")).date()
-    start_date = recent_date - dt.timedelta(days=365)
+    begin_date = recent_date - dt.timedelta(days=365)
+
+    sel = [measurement.date, measurement.prcp]
 
     prcp_results = session.query(*sel).\
-                    filter(measurement.date <= recent_date).filter(measurement.date >= start_date).\
+                    filter(measurement.date <= recent_date).filter(measurement.date >= begin_date).\
                     order_by(measurement.date.desc()).all()
     
     session.close()
@@ -91,35 +91,30 @@ def precip():
 
 # 3. Return a JSON list of stations from the dataset.
 
-@app.route("/api/v1.0/stations")
-def all_stations():
+@app.route("/api/v1.0/station")
+def all_station():
     print("Server received request for 'Stations' page...")  
 
     # Create our session (link) from Python to the DB
     session = Session(engine)
 
-   # Query station information
-    station_results = session.query(station.id, station.station, station.name2).all()
+    # Query station data from the Station dataset
+    station_data = session.query(Station.station, Station.name).all()
 
+    # Close the session                   
     session.close()
 
-    # Create a dictionary from the row data and append to a list 
-    all_stations = []
-    for station in station_results:
-        stations_dict = {}
-        stations_dict["ID"] = id
-        stations_dict["Station"] = station
-        stations_dict["Name"] = name
-        all_stations.append(stations_dict)
+    # Convert list of tuples into normal list
+    station_list = list(np.ravel(station_data))
 
-    # Return a JSON list of stations from the dataset.
-    return jsonify(all_stations)
+    # Return a list of jsonified station data
+    return jsonify(station_list)
 
 # 4. Return a JSON list of temperature observations for the previous year
 #    of the most-active station for the previous year of data.
 
 @app.route("/api/v1.0/tobs")
-def temperature():
+def temps():
     print("Server received request for 'Temperature' page...") 
     # Create our session (link) from Python to the DB
     session = Session(engine)
@@ -131,72 +126,83 @@ def temperature():
                                         first()[0]
 
    # Query temperature information from the last recent year of data for the most active station
-    sel3 = [measurement.station,
-            measurement.date,
-            measurement.tobs]
+    recent_date = session.query(measurement.date).order_by(measurement.date.desc()).first()[0]
+    recent_date = (dt.datetime.strptime(recent_date, "%Y-%m-%d")).date()
+    begin_date = recent_date - dt.timedelta(days=365)
     
-    date1 = dt.datetime(2017, 8, 23)
-    date2 = dt.datetime(2016, 8, 23)
-    
-    temp_results = session.query(*sel3).\
-            filter(measurement.date <= date1).filter(measurement.date >= date2).\
+    temp_results = session.query(measurement.date, measurement.tobs).\
+            filter(measurement.date <= recent_date).filter(measurement.date >= begin_date).\
             filter(measurement.station == most_active_station).\
             order_by(measurement.date.desc()).all()
 
     session.close()
 
-    return jsonify(temp_results)
+    # Create a dictionary from the row data and append to a list of tobs_list
+    temps_list = []
+    for date, tobs in temp_results:
+        temps_dict = {}
+        temps_dict["date"] = date
+        temps_dict["temps"] = tobs
+        temps_list.append(temps_dict)
+
+    # Return a list of jsonified tobs data for the previous 12 months
+    return jsonify(temps_list)
+
 
 # 5. Return a JSON list of the minimum temperature, average temperature, and maximum temperature
 #    a. for all the dates greater than or equal to the specified start
 #    b. for all the dates from the specified start-end range, inclusive
 @app.route("/api/v1.0/<start>")
-def start_date(start_date):
-    print("Server received request... Please enter {start_date}. Use format YYYY-MM-DD.")
+def date_start(start=None):
+    print("Server received request... Please use format YYYY-MM-DD for the date.")
+
+    # replace <start> on the route with date format YYYY-MM-DD
 
     # Create our session (link) from Python to the DB
     session = Session(engine)
 
     # Query of min, max and avg temperature for all the dates greater than or equal to the specified start.
-    start_results = session.query(func.min(measurement.tobs), func.max(measurement.tobs), func.avg(measurement.tobs)).\
-             filter(measurement.date >= start_date).all()
+    sel2 = [func.min(measurement.tobs), func.max(measurement.tobs), func.avg(measurement.tobs)]
+    start_results = session.query(*sel2).filter(measurement.date >= start).all()
 
     session.close()     
 
 # Create a dictionary from the row data and append to a list 
-    start_temps = []
-    for date, min, avg, max in start_results:
+    start_list = []
+    for min, max, avg in start_results:
         temp_dict = {}
         temp_dict["Minimum Temp"] = min
         temp_dict["Maximum Temp"] = max
         temp_dict["Average Temp "] = avg
-        start_temps.append(temp_dict)
+        start_list.append(temp_dict)
 
+    start_temps = list(np.ravel(start_list))
     return jsonify(start_temps)
 
-@app.route("/api/v1.0/<start>")
-def start_date(start_date, end_date):
-    print("Server received request... Please enter {start_date} and {end_date}.  Use format YYYY-MM-DD.")
+@app.route("/api/v1.0/<start>/<end>")
+def date_range(start=None, end=None):
+    print("Server received request... Please use format YYYY-MM-DD for the date.")
 
     # Create our session (link) from Python to the DB
     session = Session(engine)
 
     # Query of min, max and avg temperature for dates between given start and end date.
-    range_results = session.query(func.min(measurement.tobs),\
-         func.max(measurement.tobs), func.avg(measurement.tobs)).\
-             filter(measurement.date >= start_date).filter(measurement.date <= end_date).all()
+
+    sel3 = [func.min(measurement.tobs), func.max(measurement.tobs), func.avg(measurement.tobs)]
+    range_results = session.query(*sel3).filter(measurement.date >= start).filter(measurement.date <= end).all()
 
     session.close()        
 
     # Create a dictionary from the row data and append to a list of info
-    range_temps = []
+    range_list = []
     for min, max, avg in range_results:
         temp_dict2 = {}
         temp_dict2["Minimum Temp"] = min
         temp_dict2["Maximum Temp"] = max
         temp_dict2["Average Temp "] = avg
-        range_temps.append(temp_dict2)
+        range_list.append(temp_dict2)
 
+    range_temps = list(np.ravel(range_list))
     return jsonify(range_temps)
 
 
