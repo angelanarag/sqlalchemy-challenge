@@ -43,13 +43,18 @@ def welcome():
         f"Welcome to A.Narag's Module 10 SQLAlchemy Challenge!<br/>"
         f"----------------------------------------------------<br/>"
         f"Available Routes:<br/>"
+        "<br/>"
         f"/api/v1.0/precipitation<br/>"
         f"/api/v1.0/station<br/>"
         f"/api/v1.0/tobs<br/>"
+        f"<br/>"
+        f" ** Note: For the below two routes, you will need to include 'start_date' and 'end_date' in 'YYYY-MM-DD' format. **<br/>"
         f"/api/v1.0/<start><br/>"
+        f"   Example: /api/v1.0/2016-01-01<br/>"
         f"/api/v1.0/<start>/<end><br/>"
-        f"<br>"
-        f"Note: You will be asked to input the 'start_date' and 'end_date'. Format for querying is 'YYYY-MM-DD'.")
+        f"   Example: /api/v1.0/2016-01-01/2016-12-31")
+        
+        
 
 # 2. Return the JSON representation of the precipitation dictionary
 #    Create dictionary of the query results from your precipitation analysis
